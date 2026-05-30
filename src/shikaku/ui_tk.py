@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from .domain import Rect
+from .generator import generate_puzzle
 from .parser_txt import parse_board_txt
 from .solver import solve
 from .validate import validate_board_basic
@@ -38,10 +39,29 @@ class ShikakuApp(tk.Tk):
         btn_load = tk.Button(toolbar, text="Cargar TXT", command=self.load_txt)
         btn_load.pack(side=tk.LEFT, padx=6, pady=6)
 
+        # Generator controls
+        gen_frame = tk.Frame(toolbar)
+        gen_frame.pack(side=tk.LEFT, padx=10)
+
+        tk.Label(gen_frame, text="N:").pack(side=tk.LEFT)
+        self.var_n = tk.StringVar(value="6")
+        tk.Entry(gen_frame, textvariable=self.var_n, width=3).pack(side=tk.LEFT, padx=(2, 8))
+
+        tk.Label(gen_frame, text="M:").pack(side=tk.LEFT)
+        self.var_m = tk.StringVar(value="6")
+        tk.Entry(gen_frame, textvariable=self.var_m, width=3).pack(side=tk.LEFT, padx=(2, 8))
+
+        tk.Label(gen_frame, text="Dificultad:").pack(side=tk.LEFT)
+        self.var_diff = tk.StringVar(value="Fácil")
+        tk.OptionMenu(gen_frame, self.var_diff, "Fácil", "Medio", "Difícil").pack(side=tk.LEFT, padx=(2, 8))
+
+        btn_gen = tk.Button(gen_frame, text="Generar", command=self.generate)
+        btn_gen.pack(side=tk.LEFT)
+
         self.btn_solve = tk.Button(toolbar, text="Resolver", command=self.solve_and_draw, state=tk.DISABLED)
         self.btn_solve.pack(side=tk.LEFT, padx=6, pady=6)
 
-        self.status = tk.StringVar(value="Carga un tablero TXT")
+        self.status = tk.StringVar(value="Carga o genera un tablero")
         lbl = tk.Label(toolbar, textvariable=self.status, anchor="w")
         lbl.pack(side=tk.LEFT, padx=10)
 
@@ -49,6 +69,23 @@ class ShikakuApp(tk.Tk):
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.bind("<Configure>", lambda e: self.redraw())
+
+    def _set_board(self, board) -> None:
+        ok, msg = validate_board_basic(board)
+        if not ok:
+            messagebox.showwarning("Tablero inválido", msg)
+            self.board = board
+            self.solution_rects = []
+            self.btn_solve.config(state=tk.DISABLED)
+            self.status.set("Tablero inválido")
+            self.redraw()
+            return
+
+        self.board = board
+        self.solution_rects = []
+        self.btn_solve.config(state=tk.NORMAL)
+        self.status.set(f"Tablero: {board.n_rows}x{board.n_cols} | pistas: {len(board.clues)}")
+        self.redraw()
 
     def load_txt(self) -> None:
         path = filedialog.askopenfilename(
@@ -67,21 +104,26 @@ class ShikakuApp(tk.Tk):
             self.status.set("Error al cargar")
             return
 
-        ok, msg = validate_board_basic(board)
-        if not ok:
-            messagebox.showwarning("Tablero inválido", msg)
-            self.board = board  # still show it
-            self.solution_rects = []
-            self.btn_solve.config(state=tk.DISABLED)
-            self.status.set("Tablero inválido")
-            self.redraw()
+        self._set_board(board)
+
+    def generate(self) -> None:
+        try:
+            n = int(self.var_n.get())
+            m = int(self.var_m.get())
+        except ValueError:
+            messagebox.showerror("Error", "N y M deben ser enteros.")
             return
 
-        self.board = board
-        self.solution_rects = []
-        self.btn_solve.config(state=tk.NORMAL)
-        self.status.set(f"Tablero cargado: {self.board.n_rows}x{self.board.n_cols} | pistas: {len(self.board.clues)}")
-        self.redraw()
+        if n <= 0 or m <= 0:
+            messagebox.showerror("Error", "N y M deben ser > 0")
+            return
+
+        diff_map = {"Fácil": "easy", "Medio": "medium", "Difícil": "hard"}
+        diff = diff_map.get(self.var_diff.get(), "easy")
+
+        # Use a random seed for variety each click
+        board = generate_puzzle(n, m, diff, seed=None)
+        self._set_board(board)
 
     def solve_and_draw(self) -> None:
         if self.board is None:
@@ -115,7 +157,6 @@ class ShikakuApp(tk.Tk):
         height = y0 * 2 + n * s
         self.canvas.config(scrollregion=(0, 0, width, height))
 
-        # Draw filled solution rectangles first (so grid lines and numbers are on top)
         for i, rect in enumerate(self.solution_rects):
             fill = _pastel_color(i, max(1, len(self.solution_rects)))
             x1 = x0 + rect.c1 * s
@@ -124,7 +165,6 @@ class ShikakuApp(tk.Tk):
             y2 = y0 + (rect.r2 + 1) * s
             self.canvas.create_rectangle(x1, y1, x2, y2, outline="#333", width=3, fill=fill)
 
-        # Draw grid cells and clues
         for r in range(n):
             for c in range(m):
                 x1 = x0 + c * s
@@ -146,7 +186,7 @@ class ShikakuApp(tk.Tk):
 
 def main() -> None:
     app = ShikakuApp()
-    app.minsize(420, 320)
+    app.minsize(520, 320)
     app.mainloop()
 
 
