@@ -21,6 +21,11 @@ python -m src.shikaku.ui_tk
 - **Clic derecho** sobre un rectángulo: lo elimina.
 - Botón **Limpiar jugada**: borra todos los rectángulos del jugador.
 
+## Ver solución / resolver definitivo
+- **Ver solución**: muestra la solución como **contornos azules** (overlay). Puedes seguir jugando.
+- **Resolver definitivo**: pinta la solución completa y **bloquea el juego** en ese tablero.
+  - Para volver a jugar, presiona **Limpiar jugada**.
+
 ## Formato del tablero (TXT)
 - Primera línea: `N M`
 - Luego `N` líneas con `M` enteros separados por espacios
