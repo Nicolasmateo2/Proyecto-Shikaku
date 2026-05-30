@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox
 from .domain import Rect
 from .parser_txt import parse_board_txt
 from .solver import solve
+from .validate import validate_board_basic
 
 
 def _pastel_color(i: int, n: int) -> str:
@@ -57,7 +58,7 @@ class ShikakuApp(tk.Tk):
         if not path:
             return
         try:
-            self.board = parse_board_txt(path)
+            board = parse_board_txt(path)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer el tablero:\n{e}")
             self.board = None
@@ -66,6 +67,17 @@ class ShikakuApp(tk.Tk):
             self.status.set("Error al cargar")
             return
 
+        ok, msg = validate_board_basic(board)
+        if not ok:
+            messagebox.showwarning("Tablero inválido", msg)
+            self.board = board  # still show it
+            self.solution_rects = []
+            self.btn_solve.config(state=tk.DISABLED)
+            self.status.set("Tablero inválido")
+            self.redraw()
+            return
+
+        self.board = board
         self.solution_rects = []
         self.btn_solve.config(state=tk.NORMAL)
         self.status.set(f"Tablero cargado: {self.board.n_rows}x{self.board.n_cols} | pistas: {len(self.board.clues)}")
@@ -82,7 +94,7 @@ class ShikakuApp(tk.Tk):
         if not res.success:
             self.solution_rects = []
             self.redraw()
-            messagebox.showwarning("Sin solución", "No se encontró solución (con el solver actual).")
+            messagebox.showwarning("Sin solución", res.message or "No se encontró solución.")
             self.status.set("Sin solución")
             return
 

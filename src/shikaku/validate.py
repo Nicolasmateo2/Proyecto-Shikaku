@@ -1,8 +1,41 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Iterable, Set
 
 from .domain import Board, Clue, Cell, Rect
+
+
+def validate_board_basic(board: Board) -> tuple[bool, str]:
+    """Basic board validity checks.
+
+    These are necessary conditions for a valid Shikaku instance.
+    """
+
+    if board.n_rows <= 0 or board.n_cols <= 0:
+        return False, "Dimensiones inválidas (N y M deben ser > 0)."
+
+    if not board.clues:
+        return False, "El tablero no contiene pistas (números)."
+
+    for clue in board.clues:
+        if clue.area <= 0:
+            return False, f"Pista inválida en ({clue.row},{clue.col}): área <= 0."
+
+    total_area = board.n_rows * board.n_cols
+    sum_clues = sum(c.area for c in board.clues)
+    if sum_clues != total_area:
+        return (
+            False,
+            f"La suma de las pistas ({sum_clues}) no coincide con el área del tablero ({total_area}).",
+        )
+
+    return True, "OK"
+
+
+def validate_board_or_raise(board: Board) -> None:
+    ok, msg = validate_board_basic(board)
+    if not ok:
+        raise ValueError(msg)
 
 
 def rect_in_bounds(board: Board, rect: Rect) -> bool:
