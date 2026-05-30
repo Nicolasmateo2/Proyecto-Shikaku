@@ -1,0 +1,1 @@
+"""Shikaku project package."""
