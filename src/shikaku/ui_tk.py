@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from .domain import Rect
+from .game import GameState
 from .generator import generate_puzzle
 from .parser_txt import parse_board_txt
 from .solver import solve
@@ -22,6 +23,24 @@ def _pastel_color(i: int, n: int) -> str:
     return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
 
+def _cell_from_xy(x: int, y: int, pad: int, cell_size: int) -> tuple[int, int] | None:
+    x -= pad
+    y -= pad
+    if x < 0 or y < 0:
+        return None
+    c = x // cell_size
+    r = y // cell_size
+    return int(r), int(c)
+
+
+def _rect_from_cells(a: tuple[int, int], b: tuple[int, int]) -> Rect:
+    r1 = min(a[0], b[0])
+    c1 = min(a[1], b[1])
+    r2 = max(a[0], b[0])
+    c2 = max(a[1], b[1])
+    return Rect(r1=r1, c1=c1, r2=r2, c2=c2)
+
+
 class ShikakuApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -29,6 +48,13 @@ class ShikakuApp(tk.Tk):
 
         self.board = None
         self.solution_rects: list[Rect] = []
+        self.game: GameState | None = None
+
+        # drag-to-draw state
+        self.drag_start: tuple[int, int] | None = None
+        self.drag_end: tuple[int, int] | None = None
+        self.preview_valid: bool = True
+        self.preview_msg: str = ""
 
         self.cell_size = 42
         self.pad = 10
@@ -61,12 +87,22 @@ class ShikakuApp(tk.Tk):
         self.btn_solve = tk.Button(toolbar, text="Resolver", command=self.solve_and_draw, state=tk.DISABLED)
         self.btn_solve.pack(side=tk.LEFT, padx=6, pady=6)
 
+        btn_clear = tk.Button(toolbar, text="Limpiar jugada", command=self.clear_play, state=tk.DISABLED)
+        btn_clear.pack(side=tk.LEFT, padx=6, pady=6)
+        self.btn_clear = btn_clear
+
         self.status = tk.StringVar(value="Carga o genera un tablero")
         lbl = tk.Label(toolbar, textvariable=self.status, anchor="w")
         lbl.pack(side=tk.LEFT, padx=10)
 
         self.canvas = tk.Canvas(self, bg="white")
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Play bindings
+        self.canvas.bind("<Button-1>", self.on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_move)
+        self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        self.canvas.bind("<Button-3>", self.on_right_click)
 
         self.bind("<Configure>", lambda e: self.redraw())
 
@@ -76,15 +112,22 @@ class ShikakuApp(tk.Tk):
             messagebox.showwarning("Tablero inválido", msg)
             self.board = board
             self.solution_rects = []
+            self.game = None
             self.btn_solve.config(state=tk.DISABLED)
+            self.btn_clear.config(state=tk.DISABLED)
             self.status.set("Tablero inválido")
             self.redraw()
             return
 
         self.board = board
         self.solution_rects = []
+        self.game = GameState(board)
         self.btn_solve.config(state=tk.NORMAL)
-        self.status.set(f"Tablero: {board.n_rows}x{board.n_cols} | pistas: {len(board.clues)}")
+        self.btn_clear.config(state=tk.NORMAL)
+        self.status.set(
+            "Modo juego: arrastra con clic izquierdo para dibujar rectángulos. "
+            "Clic derecho para borrar uno."
+        )
         self.redraw()
 
     def load_txt(self) -> None:
@@ -100,7 +143,9 @@ class ShikakuApp(tk.Tk):
             messagebox.showerror("Error", f"No se pudo leer el tablero:\n{e}")
             self.board = None
             self.solution_rects = []
+            self.game = None
             self.btn_solve.config(state=tk.DISABLED)
+            self.btn_clear.config(state=tk.DISABLED)
             self.status.set("Error al cargar")
             return
 
@@ -121,9 +166,16 @@ class ShikakuApp(tk.Tk):
         diff_map = {"Fácil": "easy", "Medio": "medium", "Difícil": "hard"}
         diff = diff_map.get(self.var_diff.get(), "easy")
 
-        # Use a random seed for variety each click
         board = generate_puzzle(n, m, diff, seed=None)
         self._set_board(board)
+
+    def clear_play(self) -> None:
+        if self.game is None:
+            return
+        self.game.clear()
+        self.solution_rects = []
+        self.status.set("Jugada limpiada")
+        self.redraw()
 
     def solve_and_draw(self) -> None:
         if self.board is None:
@@ -142,7 +194,65 @@ class ShikakuApp(tk.Tk):
 
         self.solution_rects = res.rects
         self.redraw()
-        self.status.set("Resuelto")
+        self.status.set("Solución mostrada (puedes seguir jugando si quieres)")
+
+    def _cell_from_event(self, event) -> tuple[int, int] | None:
+        if self.board is None:
+            return None
+        cell = _cell_from_xy(event.x, event.y, self.pad, self.cell_size)
+        if cell is None:
+            return None
+        r, c = cell
+        if not (0 <= r < self.board.n_rows and 0 <= c < self.board.n_cols):
+            return None
+        return r, c
+
+    def on_mouse_down(self, event) -> None:
+        if self.game is None:
+            return
+        cell = self._cell_from_event(event)
+        if cell is None:
+            return
+        self.drag_start = cell
+        self.drag_end = cell
+        self.redraw()
+
+    def on_mouse_move(self, event) -> None:
+        if self.game is None or self.drag_start is None:
+            return
+        cell = self._cell_from_event(event)
+        if cell is None:
+            return
+        self.drag_end = cell
+        self.redraw()
+
+    def on_mouse_up(self, event) -> None:
+        if self.game is None or self.drag_start is None or self.drag_end is None:
+            return
+
+        rect = _rect_from_cells(self.drag_start, self.drag_end)
+        res = self.game.try_add_rect(rect)
+        if not res.ok:
+            self.status.set(res.message)
+        else:
+            self.status.set("Rectángulo agregado")
+            if self.game.is_win():
+                messagebox.showinfo("¡Ganaste!", "La grilla quedó completamente pavimentada.")
+
+        self.drag_start = None
+        self.drag_end = None
+        self.redraw()
+
+    def on_right_click(self, event) -> None:
+        if self.game is None:
+            return
+        cell = self._cell_from_event(event)
+        if cell is None:
+            return
+        r, c = cell
+        if self.game.try_remove_rect_at(r, c):
+            self.status.set("Rectángulo eliminado")
+            self.redraw()
 
     def redraw(self) -> None:
         self.canvas.delete("all")
@@ -157,14 +267,35 @@ class ShikakuApp(tk.Tk):
         height = y0 * 2 + n * s
         self.canvas.config(scrollregion=(0, 0, width, height))
 
+        # Draw solver solution rectangles (if present) very lightly
         for i, rect in enumerate(self.solution_rects):
             fill = _pastel_color(i, max(1, len(self.solution_rects)))
             x1 = x0 + rect.c1 * s
             y1 = y0 + rect.r1 * s
             x2 = x0 + (rect.c2 + 1) * s
             y2 = y0 + (rect.r2 + 1) * s
-            self.canvas.create_rectangle(x1, y1, x2, y2, outline="#333", width=3, fill=fill)
+            self.canvas.create_rectangle(x1, y1, x2, y2, outline="#666", width=2, fill=fill, stipple="gray25")
 
+        # Draw player rectangles on top (solid)
+        if self.game is not None:
+            for i, rect in enumerate(self.game.player_rects):
+                fill = _pastel_color(i, max(1, len(self.game.player_rects)))
+                x1 = x0 + rect.c1 * s
+                y1 = y0 + rect.r1 * s
+                x2 = x0 + (rect.c2 + 1) * s
+                y2 = y0 + (rect.r2 + 1) * s
+                self.canvas.create_rectangle(x1, y1, x2, y2, outline="#222", width=3, fill=fill)
+
+        # Preview rectangle (dragging)
+        if self.drag_start is not None and self.drag_end is not None:
+            pr = _rect_from_cells(self.drag_start, self.drag_end)
+            x1 = x0 + pr.c1 * s
+            y1 = y0 + pr.r1 * s
+            x2 = x0 + (pr.c2 + 1) * s
+            y2 = y0 + (pr.r2 + 1) * s
+            self.canvas.create_rectangle(x1, y1, x2, y2, outline="#000", width=2, dash=(4, 3))
+
+        # Draw grid and clues
         for r in range(n):
             for c in range(m):
                 x1 = x0 + c * s
@@ -186,7 +317,7 @@ class ShikakuApp(tk.Tk):
 
 def main() -> None:
     app = ShikakuApp()
-    app.minsize(520, 320)
+    app.minsize(720, 360)
     app.mainloop()
 
 
