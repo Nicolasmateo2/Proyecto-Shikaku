@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+import colorsys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from .domain import Rect
 from .parser_txt import parse_board_txt
+from .solver import solve
+
+
+def _pastel_color(i: int, n: int) -> str:
+    """Generate a pastel-ish hex color."""
+    if n <= 0:
+        n = 1
+    h = (i % n) / n
+    s = 0.35
+    v = 0.98
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
 
 class ShikakuApp(tk.Tk):
@@ -12,6 +26,8 @@ class ShikakuApp(tk.Tk):
         self.title("Shikaku - GUI mínima")
 
         self.board = None
+        self.solution_rects: list[Rect] = []
+
         self.cell_size = 42
         self.pad = 10
 
@@ -21,7 +37,7 @@ class ShikakuApp(tk.Tk):
         btn_load = tk.Button(toolbar, text="Cargar TXT", command=self.load_txt)
         btn_load.pack(side=tk.LEFT, padx=6, pady=6)
 
-        self.btn_solve = tk.Button(toolbar, text="Resolver", command=self.solve, state=tk.DISABLED)
+        self.btn_solve = tk.Button(toolbar, text="Resolver", command=self.solve_and_draw, state=tk.DISABLED)
         self.btn_solve.pack(side=tk.LEFT, padx=6, pady=6)
 
         self.status = tk.StringVar(value="Carga un tablero TXT")
@@ -45,18 +61,34 @@ class ShikakuApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer el tablero:\n{e}")
             self.board = None
+            self.solution_rects = []
             self.btn_solve.config(state=tk.DISABLED)
             self.status.set("Error al cargar")
             return
 
+        self.solution_rects = []
         self.btn_solve.config(state=tk.NORMAL)
-        self.status.set(
-            f"Tablero cargado: {self.board.n_rows}x{self.board.n_cols} | pistas: {len(self.board.clues)}"
-        )
+        self.status.set(f"Tablero cargado: {self.board.n_rows}x{self.board.n_cols} | pistas: {len(self.board.clues)}")
         self.redraw()
 
-    def solve(self) -> None:
-        messagebox.showinfo("Resolver", "Solver aún no implementado. (Siguiente paso: backtracking)")
+    def solve_and_draw(self) -> None:
+        if self.board is None:
+            return
+
+        self.status.set("Resolviendo...")
+        self.update_idletasks()
+
+        res = solve(self.board)
+        if not res.success:
+            self.solution_rects = []
+            self.redraw()
+            messagebox.showwarning("Sin solución", "No se encontró solución (con el solver actual).")
+            self.status.set("Sin solución")
+            return
+
+        self.solution_rects = res.rects
+        self.redraw()
+        self.status.set("Resuelto")
 
     def redraw(self) -> None:
         self.canvas.delete("all")
@@ -71,6 +103,16 @@ class ShikakuApp(tk.Tk):
         height = y0 * 2 + n * s
         self.canvas.config(scrollregion=(0, 0, width, height))
 
+        # Draw filled solution rectangles first (so grid lines and numbers are on top)
+        for i, rect in enumerate(self.solution_rects):
+            fill = _pastel_color(i, max(1, len(self.solution_rects)))
+            x1 = x0 + rect.c1 * s
+            y1 = y0 + rect.r1 * s
+            x2 = x0 + (rect.c2 + 1) * s
+            y2 = y0 + (rect.r2 + 1) * s
+            self.canvas.create_rectangle(x1, y1, x2, y2, outline="#333", width=3, fill=fill)
+
+        # Draw grid cells and clues
         for r in range(n):
             for c in range(m):
                 x1 = x0 + c * s
