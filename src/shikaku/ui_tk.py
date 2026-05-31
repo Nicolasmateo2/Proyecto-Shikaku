@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import colorsys
+import datetime as _dt
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from .domain import Rect
 from .game import GameState
 from .generator import generate_puzzle
+from .io_txt import save_board_to_boards
 from .parser_txt import parse_board_txt
 from .solver import solve
-from .validate import validate_board_basic
+from .validate import check_solution, validate_board_basic
 
 
 def _pastel_color(i: int, n: int) -> str:
@@ -83,6 +85,10 @@ class ShikakuApp(tk.Tk):
         btn_gen = tk.Button(gen_frame, text="Generar", command=self.generate)
         btn_gen.pack(side=tk.LEFT)
 
+        btn_save = tk.Button(toolbar, text="Guardar tablero", command=self.save_board, state=tk.DISABLED)
+        btn_save.pack(side=tk.LEFT, padx=6, pady=6)
+        self.btn_save = btn_save
+
         # Solution buttons
         self.btn_show_solution = tk.Button(
             toolbar, text="Ver solución", command=self.show_solution_overlay, state=tk.DISABLED
@@ -113,15 +119,6 @@ class ShikakuApp(tk.Tk):
 
         self.bind("<Configure>", lambda e: self.redraw())
 
-    def _lock_play(self) -> None:
-        # Keep clear enabled so user can reset and play again
-        self.btn_show_solution.config(state=tk.NORMAL if self.board is not None else tk.DISABLED)
-        self.btn_final_solution.config(state=tk.NORMAL if self.board is not None else tk.DISABLED)
-
-    def _unlock_play(self) -> None:
-        self.btn_show_solution.config(state=tk.NORMAL if self.board is not None else tk.DISABLED)
-        self.btn_final_solution.config(state=tk.NORMAL if self.board is not None else tk.DISABLED)
-
     def _set_board(self, board) -> None:
         ok, msg = validate_board_basic(board)
         if not ok:
@@ -133,6 +130,7 @@ class ShikakuApp(tk.Tk):
             self.btn_show_solution.config(state=tk.DISABLED)
             self.btn_final_solution.config(state=tk.DISABLED)
             self.btn_clear.config(state=tk.DISABLED)
+            self.btn_save.config(state=tk.NORMAL)  # still allow saving
             self.status.set("Tablero inválido")
             self.redraw()
             return
@@ -145,6 +143,7 @@ class ShikakuApp(tk.Tk):
         self.btn_show_solution.config(state=tk.NORMAL)
         self.btn_final_solution.config(state=tk.NORMAL)
         self.btn_clear.config(state=tk.NORMAL)
+        self.btn_save.config(state=tk.NORMAL)
 
         self.status.set(
             "Modo juego: arrastra con clic izquierdo para dibujar rectángulos. "
@@ -170,6 +169,7 @@ class ShikakuApp(tk.Tk):
             self.btn_show_solution.config(state=tk.DISABLED)
             self.btn_final_solution.config(state=tk.DISABLED)
             self.btn_clear.config(state=tk.DISABLED)
+            self.btn_save.config(state=tk.DISABLED)
             self.status.set("Error al cargar")
             return
 
@@ -193,19 +193,31 @@ class ShikakuApp(tk.Tk):
         board = generate_puzzle(n, m, diff, seed=None)
         self._set_board(board)
 
+    def save_board(self) -> None:
+        if self.board is None:
+            return
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"generated_{self.board.n_rows}x{self.board.n_cols}_{ts}.txt"
+        try:
+            path = save_board_to_boards(self.board, filename)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar el tablero:\n{e}")
+            return
+        self.status.set(f"Tablero guardado en {path.as_posix()}")
+
     def clear_play(self) -> None:
         if self.game is None:
             return
         self.game.clear()
-        # Hide any shown solution and unlock play
         self.solution_rects = []
         self.solution_mode = "none"
         self.status.set("Jugada limpiada")
         self.redraw()
 
-    def _compute_solution(self) -> bool:
+    def _compute_solution(self) -> tuple[bool, str]:
         if self.board is None:
-            return False
+            return False, "No hay tablero"
+
         res = solve(self.board)
         if not res.success:
             self.solution_rects = []
@@ -213,9 +225,25 @@ class ShikakuApp(tk.Tk):
             self.redraw()
             messagebox.showwarning("Sin solución", res.message or "No se encontró solución.")
             self.status.set("Sin solución")
-            return False
+            return False, res.message
+
         self.solution_rects = res.rects
-        return True
+
+        # Verify correctness explicitly
+        chk = check_solution(self.board, self.solution_rects)
+        if not chk.ok:
+            messagebox.showerror("Error", f"El solver devolvió una solución inválida: {chk.message}")
+            self.solution_rects = []
+            self.solution_mode = "none"
+            self.redraw()
+            return False, chk.message
+
+        # Show metrics for report/demo
+        nodes = res.stats.nodes if res.stats else 0
+        pruned = res.stats.pruned_overlap if res.stats else 0
+        elapsed = res.elapsed_ms if res.elapsed_ms is not None else 0.0
+        self.status.set(f"Solución calculada: {elapsed:.1f} ms | nodos: {nodes} | podas(solape): {pruned}")
+        return True, "OK"
 
     def show_solution_overlay(self) -> None:
         if self.board is None:
@@ -223,11 +251,11 @@ class ShikakuApp(tk.Tk):
         self.status.set("Calculando solución...")
         self.update_idletasks()
 
-        if not self._compute_solution():
+        ok, _ = self._compute_solution()
+        if not ok:
             return
 
         self.solution_mode = "overlay"
-        self.status.set("Solución (overlay) mostrada: puedes seguir jugando")
         self.redraw()
 
     def show_solution_final(self) -> None:
@@ -236,11 +264,12 @@ class ShikakuApp(tk.Tk):
         self.status.set("Calculando solución...")
         self.update_idletasks()
 
-        if not self._compute_solution():
+        ok, _ = self._compute_solution()
+        if not ok:
             return
 
         self.solution_mode = "final"
-        self.status.set("Solución definitiva mostrada (juego bloqueado). Limpiar jugada para jugar.")
+        self.status.set(self.status.get() + " | Juego bloqueado (Limpiar jugada para jugar)")
         self.redraw()
 
     def _cell_from_event(self, event) -> tuple[int, int] | None:
@@ -314,9 +343,7 @@ class ShikakuApp(tk.Tk):
         height = y0 * 2 + n * s
         self.canvas.config(scrollregion=(0, 0, width, height))
 
-        # Draw solution depending on mode
         if self.solution_mode == "overlay":
-            # Crisp overlay: only outlines, no fill, so play remains clear
             for rect in self.solution_rects:
                 x1 = x0 + rect.c1 * s
                 y1 = y0 + rect.r1 * s
@@ -333,7 +360,6 @@ class ShikakuApp(tk.Tk):
                 y2 = y0 + (rect.r2 + 1) * s
                 self.canvas.create_rectangle(x1, y1, x2, y2, outline="#222", width=3, fill=fill)
 
-        # Draw player rectangles on top (solid)
         if self.game is not None and self.solution_mode != "final":
             for i, rect in enumerate(self.game.player_rects):
                 fill = _pastel_color(i, max(1, len(self.game.player_rects)))
@@ -343,7 +369,6 @@ class ShikakuApp(tk.Tk):
                 y2 = y0 + (rect.r2 + 1) * s
                 self.canvas.create_rectangle(x1, y1, x2, y2, outline="#222", width=3, fill=fill)
 
-        # Preview rectangle (dragging)
         if self.solution_mode != "final" and self.drag_start is not None and self.drag_end is not None:
             pr = _rect_from_cells(self.drag_start, self.drag_end)
             x1 = x0 + pr.c1 * s
@@ -352,7 +377,6 @@ class ShikakuApp(tk.Tk):
             y2 = y0 + (pr.r2 + 1) * s
             self.canvas.create_rectangle(x1, y1, x2, y2, outline="#000", width=2, dash=(4, 3))
 
-        # Draw grid and clues
         for r in range(n):
             for c in range(m):
                 x1 = x0 + c * s
@@ -374,7 +398,7 @@ class ShikakuApp(tk.Tk):
 
 def main() -> None:
     app = ShikakuApp()
-    app.minsize(860, 360)
+    app.minsize(980, 360)
     app.mainloop()
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Iterable, Set, Tuple
+from dataclasses import dataclass
+from typing import Iterable, Optional, Set, Tuple
 
 from .domain import Board, Clue, Cell, Rect
 
@@ -77,3 +78,33 @@ def covers_all_cells(board: Board, rects: Iterable[Rect]) -> bool:
         for cell in rect.cells():
             covered.add(cell)
     return len(covered) == board.n_rows * board.n_cols
+
+
+@dataclass(frozen=True, slots=True)
+class CheckResult:
+    ok: bool
+    message: str
+
+
+def check_solution(board: Board, rects: Iterable[Rect]) -> CheckResult:
+    rect_list = list(rects)
+
+    # No overlaps
+    for i in range(len(rect_list)):
+        for j in range(i + 1, len(rect_list)):
+            if rects_overlap(rect_list[i], rect_list[j]):
+                return CheckResult(False, "La solución tiene rectángulos solapados")
+
+    # Each rect contains exactly one clue and area matches
+    for rect in rect_list:
+        clues_inside = [cl for cl in board.clues if rect.contains(cl.cell)]
+        if len(clues_inside) != 1:
+            return CheckResult(False, "Un rectángulo no contiene exactamente una pista")
+        clue = clues_inside[0]
+        if rect.area() != clue.area:
+            return CheckResult(False, "El área de un rectángulo no coincide con su pista")
+
+    if not covers_all_cells(board, rect_list):
+        return CheckResult(False, "La solución no pavimenta toda la grilla")
+
+    return CheckResult(True, "OK")
