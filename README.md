@@ -2,6 +2,19 @@
 
 Proyecto de **Análisis de Algoritmos** sobre el juego tradicional **Shikaku**.
 
+## Resumen
+Shikaku es un puzzle lógico donde se debe dividir una grilla en rectángulos. Cada rectángulo:
+- contiene **exactamente una pista** (número)
+- tiene **área igual** al valor de esa pista
+
+Este proyecto incluye:
+- GUI mínima en **Tkinter** para cargar/generar tableros, jugar y ver soluciones.
+- Solucionador automático (**backtracking** con **poda** y heurística **MRV**).
+- Generador de tableros **resolubles por construcción**.
+- Validación explícita de soluciones (`check_solution`).
+- Métricas del solver (tiempo, nodos explorados, podas por solape).
+- Pruebas automáticas con **pytest**.
+
 ## Requisitos
 - Python **3.11+**
 
@@ -25,6 +38,8 @@ python -m src.shikaku.ui_tk
 - **Ver solución**: muestra la solución como **contornos azules** (overlay). Puedes seguir jugando.
 - **Resolver definitivo**: pinta la solución completa y **bloquea el juego** en ese tablero.
   - Para volver a jugar, presiona **Limpiar jugada**.
+
+> Nota: al calcular la solución, la barra de estado muestra métricas como: `ms | nodos | podas(solape)`.
 
 ## Formato del tablero (TXT)
 - Primera línea: `N M`
@@ -54,11 +69,13 @@ Ejecutar:
 python -m pytest
 ```
 
-## Estructura
+## Estructura (módulos principales)
 - `src/shikaku/domain.py`: modelos (Board, Clue, Rect)
 - `src/shikaku/parser_txt.py`: lectura de tableros TXT
+- `src/shikaku/io_txt.py`: guardado de tableros en `boards/`
 - `src/shikaku/candidates.py`: generación de rectángulos candidatos
-- `src/shikaku/solver.py`: solucionador (backtracking)
+- `src/shikaku/solver.py`: solucionador (backtracking + poda + MRV)
+- `src/shikaku/validate.py`: validación de tablero y de soluciones
 - `src/shikaku/generator.py`: generador de tableros resolubles
 - `src/shikaku/game.py`: estado/reglas para jugar interactivo
 - `src/shikaku/ui_tk.py`: interfaz Tkinter (cargar, generar, jugar, resolver)
