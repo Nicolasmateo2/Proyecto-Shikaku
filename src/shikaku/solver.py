@@ -1,5 +1,19 @@
 from __future__ import annotations
 
+"""Solucionador automático de Shikaku.
+
+Este módulo implementa la técnica principal del proyecto:
+- Generar candidatos por pista (ver candidates.py)
+- Búsqueda con backtracking para escoger 1 rectángulo por pista
+- Poda temprana cuando los rectángulos se solapan
+- Heurística simple (MRV): resolver primero las pistas con menos candidatos
+
+También retorna estadísticas para el informe/demo:
+- nodos explorados
+- podas por solape
+- tiempo de ejecución
+"""
+
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -10,12 +24,16 @@ from .validate import covers_all_cells, rect_overlaps_any, validate_board_basic
 
 @dataclass(slots=True)
 class SolveStats:
+    """Estadísticas de ejecución de la búsqueda."""
+
     nodes: int = 0
     pruned_overlap: int = 0
 
 
 @dataclass(slots=True)
 class SolveResult:
+    """Resultado del intento de resolver un tablero."""
+
     success: bool
     rects_by_clue: Dict[Clue, Rect]
     message: str = ""
@@ -24,18 +42,20 @@ class SolveResult:
 
     @property
     def rects(self) -> List[Rect]:
+        """Atajo: lista de rectángulos de la solución."""
+
         return list(self.rects_by_clue.values())
 
 
 def solve(board: Board) -> SolveResult:
-    """Solve Shikaku via backtracking with pruning.
+    """Resuelve Shikaku con backtracking + poda.
 
-    Strategy:
-    - Basic board validation (necessary condition): sum(clues) == N*M
-    - Precompute candidates per clue
-    - Sort clues by number of candidates ascending (MRV heuristic)
-    - Backtrack placing non-overlapping rectangles
-    - Accept only solutions that tessellate the entire board
+    Estrategia (alto nivel):
+    1) Validar tablero (condición necesaria): suma(pistas) == N*M
+    2) Precomputar candidatos por pista
+    3) Ordenar pistas por número de candidatos (heurística MRV)
+    4) Backtracking colocando rectángulos sin solapamiento
+    5) Aceptar sólo soluciones que cubran todas las celdas
     """
 
     import time
@@ -49,7 +69,7 @@ def solve(board: Board) -> SolveResult:
 
     cand = generate_all_candidates(board)
 
-    # If any clue has no candidates -> unsolvable
+    # Si alguna pista no tiene candidatos, el tablero es irresoluble.
     for clue, rects in cand.items():
         if not rects:
             elapsed = (time.perf_counter() - t0) * 1000
@@ -61,26 +81,41 @@ def solve(board: Board) -> SolveResult:
                 elapsed_ms=elapsed,
             )
 
+    # Heurística MRV: resolver primero las pistas más restringidas.
     clues = sorted(board.clues, key=lambda c: len(cand[c]))
 
     placed: list[Rect] = []
     rects_by_clue: dict[Clue, Rect] = {}
 
     def bt(i: int) -> bool:
+        """Recursión de backtracking.
+
+        i es el índice dentro de la lista de pistas ordenada.
+        """
+
         stats.nodes += 1
 
+        # Caso base: ya se asignó un rectángulo a cada pista.
         if i == len(clues):
+            # Debe cubrir toda la grilla (sin huecos)
             return covers_all_cells(board, placed)
 
         clue = clues[i]
+
+        # Probar cada rectángulo candidato para esta pista.
         for rect in cand[clue]:
+            # Poda: descartar de inmediato si se solapa con lo ya colocado.
             if rect_overlaps_any(rect, placed):
                 stats.pruned_overlap += 1
                 continue
+
             placed.append(rect)
             rects_by_clue[clue] = rect
+
             if bt(i + 1):
                 return True
+
+            # Deshacer y probar siguiente candidato.
             placed.pop()
             rects_by_clue.pop(clue, None)
 

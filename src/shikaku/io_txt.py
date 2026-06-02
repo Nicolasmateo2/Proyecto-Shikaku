@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+"""Exportación de tableros a TXT.
+
+Este módulo lo usa la GUI para guardar tableros en la carpeta `boards/`.
+Guardar tableros facilita:
+- incluir instancias de prueba en el informe
+- repetir una demo de manera determinista en la sustentación
+"""
+
 from pathlib import Path
 
 from .domain import Board
 
 
 def board_to_txt(board: Board) -> str:
+    """Serializa un Board al formato TXT del proyecto."""
+
     lines: list[str] = [f"{board.n_rows} {board.n_cols}"]
     for r in range(board.n_rows):
         lines.append(" ".join(str(board.grid[r][c]) for c in range(board.n_cols)))
@@ -14,9 +24,9 @@ def board_to_txt(board: Board) -> str:
 
 
 def save_board_to_boards(board: Board, filename: str) -> Path:
-    """Save a board as TXT under ./boards.
+    """Guarda un tablero como TXT dentro de ./boards.
 
-    filename must end with .txt
+    filename debe terminar en .txt
     """
 
     if not filename.endswith(".txt"):

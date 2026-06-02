@@ -1,15 +1,32 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Optional, Set, Tuple
+"""Funciones de validación.
 
-from .domain import Board, Clue, Cell, Rect
+Este módulo centraliza chequeos de reglas para:
+- validar un tablero de entrada (condiciones necesarias)
+- validar solapamientos entre rectángulos
+- validar una solución completa (usado por tests y por la GUI)
+
+Tener estas reglas en un solo lugar mejora la correctitud y facilita explicar
+la solución en el informe.
+"""
+
+from dataclasses import dataclass
+from typing import Iterable, Set
+
+from .domain import Board, Cell, Rect
 
 
 def validate_board_basic(board: Board) -> tuple[bool, str]:
-    """Basic board validity checks.
+    """Validación básica del tablero (condiciones necesarias).
 
-    These are necessary conditions for a valid Shikaku instance.
+    Útil para fallar temprano y no ejecutar el solver sobre entradas imposibles:
+    - N y M positivos
+    - al menos una pista
+    - pistas con área positiva
+    - suma de pistas == N*M
+
+    Nota: esto NO garantiza que exista solución, sólo que el tablero es consistente.
     """
 
     if board.n_rows <= 0 or board.n_cols <= 0:
@@ -33,34 +50,10 @@ def validate_board_basic(board: Board) -> tuple[bool, str]:
     return True, "OK"
 
 
-def validate_board_or_raise(board: Board) -> None:
-    ok, msg = validate_board_basic(board)
-    if not ok:
-        raise ValueError(msg)
-
-
-def rect_in_bounds(board: Board, rect: Rect) -> bool:
-    return 0 <= rect.r1 <= rect.r2 < board.n_rows and 0 <= rect.c1 <= rect.c2 < board.n_cols
-
-
-def rect_contains_only_its_clue(board: Board, rect: Rect, clue: Clue) -> bool:
-    """True if rect contains clue and no other clues."""
-    if not rect.contains(clue.cell):
-        return False
-    for other in board.clues:
-        if other == clue:
-            continue
-        if rect.contains(other.cell):
-            return False
-    return True
-
-
-def rect_area_matches(rect: Rect, area: int) -> bool:
-    return rect.area() == area
-
-
 def rects_overlap(a: Rect, b: Rect) -> bool:
-    # Separating axis: if one is completely left/right/up/down of other => no overlap
+    """True si dos rectángulos comparten al menos una celda."""
+
+    # Eje separador: si uno está totalmente arriba/abajo/izq/der del otro, no se solapan
     if a.r2 < b.r1 or b.r2 < a.r1:
         return False
     if a.c2 < b.c1 or b.c2 < a.c1:
@@ -69,10 +62,14 @@ def rects_overlap(a: Rect, b: Rect) -> bool:
 
 
 def rect_overlaps_any(rect: Rect, placed: Iterable[Rect]) -> bool:
+    """True si rect se solapa con algún rectángulo ya colocado."""
+
     return any(rects_overlap(rect, r) for r in placed)
 
 
 def covers_all_cells(board: Board, rects: Iterable[Rect]) -> bool:
+    """True si la unión de rectángulos cubre todas las celdas del tablero."""
+
     covered: Set[Cell] = set()
     for rect in rects:
         for cell in rect.cells():
@@ -87,15 +84,28 @@ class CheckResult:
 
 
 def check_solution(board: Board, rects: Iterable[Rect]) -> CheckResult:
+    """Valida una solución completa contra las reglas del Shikaku.
+
+    Condiciones:
+    - no solapamiento
+    - cada rectángulo contiene exactamente 1 pista
+    - área del rectángulo coincide con el número de la pista
+    - los rectángulos cubren todo el tablero
+
+    Se usa en:
+    - pruebas automáticas
+    - GUI, para confirmar que la salida del solver es correcta antes de mostrarla
+    """
+
     rect_list = list(rects)
 
-    # No overlaps
+    # 1) Sin solapamientos
     for i in range(len(rect_list)):
         for j in range(i + 1, len(rect_list)):
             if rects_overlap(rect_list[i], rect_list[j]):
                 return CheckResult(False, "La solución tiene rectángulos solapados")
 
-    # Each rect contains exactly one clue and area matches
+    # 2) Exactamente una pista por rectángulo + área correcta
     for rect in rect_list:
         clues_inside = [cl for cl in board.clues if rect.contains(cl.cell)]
         if len(clues_inside) != 1:
@@ -104,6 +114,7 @@ def check_solution(board: Board, rects: Iterable[Rect]) -> CheckResult:
         if rect.area() != clue.area:
             return CheckResult(False, "El área de un rectángulo no coincide con su pista")
 
+    # 3) Cobertura total
     if not covers_all_cells(board, rect_list):
         return CheckResult(False, "La solución no pavimenta toda la grilla")
 

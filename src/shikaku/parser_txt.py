@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+"""Utilidades para importar tableros desde TXT.
+
+Los archivos de tablero se usan en el proyecto para:
+- tener instancias determinísticas en `boards/`
+- permitir cargar puzzles en la GUI
+
+Formato:
+  Primera línea: N M
+  Siguientes N líneas: M enteros separados por espacios
+  0 = celda vacía, >0 = pista (área)
+"""
+
 from pathlib import Path
 
 from .domain import Board, Clue
 
 
 def parse_board_txt(path: str | Path) -> Board:
-    """Parse a Shikaku board from a TXT file.
-
-    Format:
-      First line: N M
-      Next N lines: M integers separated by spaces
-      0 = empty, >0 = clue area
-    """
+    """Lee y parsea un tablero Shikaku desde un archivo TXT."""
 
     p = Path(path)
+
+    # Ignorar líneas vacías facilita editar tableros a mano.
     raw_lines = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
     if not raw_lines:
         raise ValueError("Empty board file")
@@ -39,6 +47,8 @@ def parse_board_txt(path: str | Path) -> Board:
             raise ValueError(f"Row {r} expected {n_cols} columns, got {len(parts)}")
         row_vals = list(map(int, parts))
         grid.append(row_vals)
+
+        # Extraer pistas desde la grilla para uso algorítmico.
         for c, v in enumerate(row_vals):
             if v > 0:
                 clues.append(Clue(row=r, col=c, area=v))
